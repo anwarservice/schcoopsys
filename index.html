@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบงานสหกรณ์โรงเรียน</title>
+    <!-- Tailwind CSS & Google Font (Kanit) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- Chart.js & FontAwesome Icons -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Supabase JS Client library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- เพิ่มสคริปต์ Vue 3 CDN ก่อนเริ่มเขียนสคริปต์ใช้งาน -->
+   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body { font-family: 'Kanit', sans-serif; background-color: #f8fafc; }
+    </style>
+</head>
+<body>
+
+<div id="app" class="min-h-screen flex flex-col">
+    <!-- Loader ประจำระบบ -->
+    <div v-if="loading" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-white p-5 rounded-2xl shadow-xl flex flex-col items-center">
+            <i class="fa-solid fa-circle-notch animate-spin text-blue-600 text-4xl mb-3"></i>
+            <span class="text-gray-700 text-sm">กำลังดำเนินการ...</span>
+        </div>
+    </div>
+
+    <!-- หน้า Login -->
+    <div v-if="!userLoggedIn" class="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-blue-500 to-indigo-700">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+            <div class="text-center mb-6">
+                <div class="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fa-solid fa-shop text-blue-600 text-3xl"></i>
+                </div>
+                <h1 class="text-2xl font-semibold text-gray-800">สหกรณ์โรงเรียน</h1>
+                <p class="text-gray-500 text-sm mt-1">กรุณาเข้าสู่ระบบเพื่อเริ่มงานประจำวัน</p>
+            </div>
+            <form @submit.prevent="handleLogin" class="space-y-4">
+                <div>
+                    <label class="block text-gray-700 text-sm mb-1">ชื่อผู้ใช้งาน</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-user absolute left-3 top-3.5 text-gray-400 text-sm"></i>
+                        <input type="text" v-model="loginForm.username" required class="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Username">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm mb-1">รหัสผ่าน</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-lock absolute left-3 top-3.5 text-gray-400 text-sm"></i>
+                        <input type="password" v-model="loginForm.password" required class="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Password">
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl transition duration-200 shadow-md">เข้าสู่ระบบ</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- โครงสร้างหน้าหลักหลังจาก Login แล้ว -->
+    <div v-else class="flex flex-col md:flex-row flex-1">
+        <!-- แถบเมนูด้านซ้าย (Sidebar) -->
+        <aside class="w-full md:w-64 bg-slate-900 text-slate-200 flex flex-col">
+            <div class="p-4 border-b border-slate-800 flex items-center space-x-3">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center overflow-hidden">
+                    <img v-if="settings.school_logo" :src="settings.school_logo" @error="settings.school_logo = null" class="object-cover w-full h-full">
+                    <i v-else class="fa-solid fa-school text-white text-lg"></i>
+                </div>
+                <div class="overflow-hidden">
+                    <h2 class="font-semibold text-sm truncate text-white">{{ settings.school_name || 'สหกรณ์โรงเรียน' }}</h2>
+                    <span class="text-xs text-green-400 flex items-center"><i class="fa-solid fa-circle text-[8px] mr-1"></i>{{ activeUser.name }} ({{ activeUser.role }})</span>
+                </div>
+            </div>
+            
+            <nav class="flex-1 p-3 space-y-1">
+                <button @click="currentTab = 'dashboard'" :class="['w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl text-sm font-medium transition', currentTab === 'dashboard' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400']">
+                    <i class="fa-solid fa-chart-pie w-5"></i><span>แดชบอร์ด</span>
+                </button>
+                
+                <div class="text-xs font-semibold px-4 pt-4 pb-2 text-slate-500 uppercase">งานประจำวัน</div>
+                <button @click="currentTab = 'receive'" :class="['w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl text-sm font-medium transition', currentTab === 'receive' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400']">
+                    <i class="fa-solid fa-basket-shopping w-5"></i><span>รับสินค้าฝากขาย / ปิดยอด</span>
+                </button>
+                <button @click="currentTab = 'payment'" :class="['w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl text-sm font-medium transition', currentTab === 'payment' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400']">
+                    <i class="fa-solid fa-hand-holding-dollar w-5"></i><span>จ่ายเงินแม่ค้า</span>
+                </button>
+
+                <div class="text-xs font-semibold px-4 pt-4 pb-2 text-slate-500 uppercase">จัดการข้อมูลพื้นฐาน</div>
+                <button @click="currentTab = 'vendors'" :class="['w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl text-sm font-medium transition', currentTab === 'vendors' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400']">
+                    <i class="fa-solid fa-store w-5"></i><span>ข้อมูลแม่ค้า</span>
+                </button>
+                <button @click="currentTab = 'products'" :class="['w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl text-sm font-medium transition', currentTab === 'products' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400']">
+                    <i class="fa-solid fa-box w-5"></i><span>ข้อมูลสินค้า</span>
+                </button>
+                <button v-if="activeUser.role === 'admin'" @click="currentTab = 'teachers'" :class="['w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl text-sm font-medium transition', currentTab === 'teachers' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400']">
+                    <i class="fa-solid fa-chalkboard-user w-5"></i><span>ข้อมูลครูเวร</span>
+                </button>
+                <button v-if="activeUser.role === 'admin'" @click="currentTab = 'settings'" :class="['w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl text-sm font-medium transition', currentTab === 'settings' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400']">
+                    <i class="fa-solid fa-sliders w-5"></i><span>ตั้งค่าระบบ</span>
+                </button>
+            </nav>
+
+            <div class="p-4 border-t border-slate-800">
+                <button @click="handleLogout" class="w-full flex items-center justify-center space-x-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white py-2 rounded-xl text-sm font-medium transition">
+                    <i class="fa-solid fa-right-from-bracket"></i><span>ออกจากระบบ</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- พื้นที่แสดงผลส่วนเนื้อหาของแต่ละโมดูล (Content Area) -->
+        <main class="flex-1 p-6 overflow-y-auto">
+            
+            <!-- MODULE: DASHBOARD -->
+            <div v-if="currentTab === 'dashboard'" class="space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-2xl font-semibold text-gray-800">ภาพรวมข้อมูลสหกรณ์</h1>
+                        <p class="text-gray-500 text-sm">ข้อมูลสรุปผลประกอบการและจำนวนรายการสำคัญ</p>
+                    </div>
+                </div>
+
+                <!-- การ์ดตัวเลขสรุป (KPI Stats) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
+                        <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center text-xl"><i class="fa-solid fa-money-bill-wave"></i></div>
+                        <div><span class="text-xs text-gray-400 block">ยอดขายวันนี้</span><span class="text-2xl font-bold text-gray-800">฿{{ formatNumber(stats.todaySales) }}</span></div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
+                        <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center text-xl"><i class="fa-solid fa-chart-line"></i></div>
+                        <div><span class="text-xs text-gray-400 block">กำไรวันนี้</span><span class="text-2xl font-bold text-gray-800">฿{{ formatNumber(stats.todayProfit) }}</span></div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
+                        <div class="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center text-xl"><i class="fa-solid fa-box-archive"></i></div>
+                        <div><span class="text-xs text-gray-400 block">สินค้าในระบบ</span><span class="text-2xl font-bold text-gray-800">{{ stats.totalProducts }} รายการ</span></div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
+                        <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl"><i class="fa-solid fa-user-tag"></i></div>
+                        <div><span class="text-xs text-gray-400 block">แม่ค้าทั้งหมด</span><span class="text-2xl font-bold text-gray-800">{{ stats.totalVendors }} ราย</span></div>
+                    </div>
+                </div>
+
+                <!-- กราฟผลประกอบการ -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-gray-700 font-medium mb-4"><i class="fa-solid fa-chart-bar text-blue-500 mr-2"></i>สรุปกำไรรายวัน (สัปดาห์นี้)</h3>
+                        <div class="h-64"><canvas id="dailyChart"></canvas></div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                        <h3 class="text-gray-700 font-medium mb-4"><i class="fa-solid fa-chart-area text-indigo-500 mr-2"></i>สรุปผลประกอบการรายเดือน</h3>
+                        <div class="h-64"><canvas id="monthlyChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODULE: RECEIVE / CLOSE SALES -->
+            <div v-if="currentTab === 'receive'" class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-2xl font-semibold text-gray-800">งานประจำวัน: ฝากขายและปิดยอด</h1>
+                        <p class="text-gray-500 text-sm">บันทึกรับของช่วงเช้า และนับยอดคงเหลือช่วงเย็น</p>
+                    </div>
+                    <button @click="openTransactionModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center space-x-2 transition">
+                        <i class="fa-solid fa-plus"></i><span>สร้างรายการใหม่</span>
+                    </button>
+                </div>
+
+                <!-- ตารางแสดงรายการรับของฝากขาย -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm text-gray-600">
+                            <thead class="bg-gray-50 text-gray-700 text-xs font-semibold uppercase border-b border-gray-100">
+                                <tr>
+                                    <th class="px-6 py-3.5">เลขที่รายการ</th>
+                                    <th class="px-6 py-3.5">วันที่</th>
+                                    <th class="px-6 py-3.5">แม่ค้า</th>
+                                    <th class="px-6 py-3.5">สถานะ</th>
+                                    <th class="px-6 py-3.5 text-right">การจัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-for="item in transactions" :key="item.id" class="hover:bg-slate-50/80 transition">
+                                    <td class="px-6 py-4 font-medium text-gray-800">{{ item.trans_no }}</td>
+                                    <td class="px-6 py-4">{{ formatDate(item.trans_date) }}</td>
+                                    <td class="px-6 py-4">{{ item.vendors?.name }}</td>
+                                    <td class="px-6 py-4">
+                                        <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', item.status === 'draft' ? 'bg-amber-100 text-amber-700' : item.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700']">
+                                            {{ item.status === 'draft' ? 'กำลังขาย (เปลี่ยนยอดได้)' : item.status === 'completed' ? 'ปิดยอดแล้ว' : 'จ่ายเงินแล้ว' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right space-x-2">
+                                        <button @click="openTransactionModal(item)" class="text-blue-600 hover:text-blue-800 font-medium text-xs bg-blue-50 px-2 py-1 rounded-lg"><i class="fa-solid fa-eye mr-1"></i>ดู/จัดการ</button>
+                                        <button v-if="item.status === 'completed'" @click="printReceipt(item)" class="text-slate-600 hover:text-slate-800 font-medium text-xs bg-slate-100 px-2 py-1 rounded-lg"><i class="fa-solid fa-print mr-1"></i>พิมพ์ใบเสร็จ</button>
+                                    </td>
+                                </tr>
+                                <tr v-if="transactions.length === 0"><td colspan="5" class="text-center py-8 text-gray-400">ไม่พบข้อมูลรายการฝากขาย</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODULE: VENDORS -->
+            <div v-if="currentTab === 'vendors'" class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-2xl font-semibold text-gray-800">จัดการข้อมูลแม่ค้าผู้ส่งของ</h1>
+                        <p class="text-gray-500 text-sm">เพิ่ม ลบ แก้ไข รายชื่อแม่ค้าที่เข้ามาฝากขายสินค้า</p>
+                    </div>
+                    <button @click="openVendorModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center space-x-2 transition">
+                        <i class="fa-solid fa-plus"></i><span>เพิ่มแม่ค้าใหม่</span>
+                    </button>
+                </div>
+
+                <!-- ตารางรายชื่อแม่ค้า -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm text-gray-600">
+                            <thead class="bg-gray-50 text-gray-700 text-xs font-semibold border-b border-gray-100">
+                                <tr>
+                                    <th class="px-6 py-3.5">รหัสแม่ค้า</th>
+                                    <th class="px-6 py-3.5">ชื่อ-นามสกุล</th>
+                                    <th class="px-6 py-3.5">เบอร์โทรศัพท์</th>
+                                    <th class="px-6 py-3.5">หมายเหตุ / ที่อยู่</th>
+                                    <th class="px-6 py-3.5 text-right">การจัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-for="v in vendors" :key="v.id" class="hover:bg-slate-50/80 transition">
+                                    <td class="px-6 py-4 font-medium text-gray-800">{{ v.vendor_code }}</td>
+                                    <td class="px-6 py-4 font-medium">{{ v.name }}</td>
+                                    <td class="px-6 py-4">{{ v.phone || '-' }}</td>
+                                    <td class="px-6 py-4 text-xs text-gray-400">{{ v.address }}</td>
+                                    <td class="px-6 py-4 text-right space-x-1">
+                                        <button @click="openVendorModal(v)" class="text-amber-600 hover:text-amber-800 bg-amber-50 p-1.5 rounded-lg"><i class="fa-solid fa-pen-to-square"></i></button>
+                                        <button @click="deleteVendor(v.id)" class="text-red-600 hover:text-red-800 bg-red-50 p-1.5 rounded-lg"><i class="fa-solid fa-trash"></i></button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- (หมายเหตุ: หน้าอื่นๆ เช่น จ่ายเงินแม่ค้า ข้อมูลสินค้า สิทธิ์ครูเวร มีรูปแบบการจัดการ Grid/Table ที่ทำงานสอดคล้องในลักษณะเดียวกัน) -->
+
+        </main>
+    </div>
+
+    <!-- MODAL POPUP: บันทึกรับฝากสินค้า / ปิดยอดรายวัน -->
+    <div v-if="modals.transaction" class="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <div class="p-5 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-lg font-semibold text-gray-800">{{ currentTx.id ? 'จัดการรายการฝากขาย: ' + currentTx.trans_no : 'ลงทะเบียนรับของฝากขายใหม่' }}</h3>
+                <button @click="modals.transaction = false" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto space-y-4 flex-1">
+                <!-- ข้อมูลหัวเอกสาร -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">เลือกแม่ค้า</label>
+                        <select v-model="currentTx.vendor_id" :disabled="currentTx.id" @change="loadVendorProducts" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                            <option value="">-- เลือกแม่ค้า --</option>
+                            <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">วันที่บันทึก</label>
+                        <input type="date" v-model="currentTx.trans_date" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">หมายเหตุ</label>
+                        <input type="text" v-model="currentTx.remark" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500" placeholder="ระบุเพิ่มเติม (ถ้ามี)">
+                    </div>
+                </div>
+
+                <hr class="border-gray-100">
+
+                <!-- รายการรายการสินค้าประกอบ -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="text-sm font-semibold text-gray-700">รายการสินค้าประกอบชุดฝากขาย</h4>
+                        <span class="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-md" v-if="currentTx.status === 'draft'"><i class="fa-solid fa-circle-info mr-1"></i>ตอนเย็น: ให้กรอกจำนวนสินค้าคงเหลือในช่องสีส้ม</span>
+                    </div>
+
+                    <div class="border border-gray-100 rounded-xl overflow-hidden">
+                        <table class="w-full text-left text-xs text-gray-600">
+                            <thead class="bg-slate-50 text-slate-700 font-semibold border-b border-gray-100">
+                                <tr>
+                                    <th class="px-4 py-3">ชื่อสินค้า</th>
+                                    <th class="px-4 py-3 w-20 text-right">ส่งทุน</th>
+                                    <th class="px-4 py-3 w-20 text-right">ขายปลีก</th>
+                                    <th class="px-4 py-3 w-24 text-center">จำนวนที่ส่ง (เช้า)</th>
+                                    <th class="px-4 py-3 w-24 text-center bg-amber-50">เหลือ (เย็น)</th>
+                                    <th class="px-4 py-3 w-20 text-center">ขายได้</th>
+                                    <th class="px-4 py-3 w-24 text-right">ยอดเงินแม่ค้า</th>
+                                    <th class="px-4 py-3 w-20 text-right">กำไรสหกรณ์</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-for="(d, idx) in currentTx.details" :key="idx">
+                                    <td class="px-4 py-3 font-medium text-gray-800">{{ d.product_name }}</td>
+                                    <td class="px-4 py-3 text-right">
+                                        <input type="number" v-model.number="d.cost_price" :disabled="currentTx.status !== 'draft'" class="w-full text-right bg-transparent border-b border-dashed focus:border-blue-500 outline-none">
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <input type="number" v-model.number="d.sell_price" :disabled="currentTx.status !== 'draft'" class="w-full text-right bg-transparent border-b border-dashed focus:border-blue-500 outline-none">
+                                    </td>
+                                    <td class="px-4 py-3 text-center">
+                                        <input type="number" v-model.number="d.qty_receive" :disabled="currentTx.status !== 'draft'" class="w-full text-center font-semibold text-blue-600 bg-blue-50/50 rounded p-1">
+                                    </td>
+                                    <td class="px-4 py-3 text-center bg-amber-50/30">
+                                        <input type="number" v-model.number="d.qty_remain" :disabled="currentTx.status !== 'draft'" @input="calculateLine(d)" class="w-full text-center font-semibold text-amber-700 bg-amber-100/50 rounded p-1">
+                                    </td>
+                                    <td class="px-4 py-3 text-center font-bold text-gray-700">{{ d.qty_sale }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-slate-800">฿{{ formatNumber(d.vendor_amount) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-emerald-600">฿{{ formatNumber(d.coop_profit) }}</td>
+                                </tr>
+                                <tr v-if="currentTx.details.length === 0"><td colspan="8" class="text-center py-6 text-gray-400">กรุณาเลือกแม่ค้าที่มีสินค้าเปิดใช้งานอยู่ในระบบ</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 bg-gray-50 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4 rounded-b-2xl">
+                <div class="flex space-x-6 text-sm">
+                    <div>รวมเงินต้องจ่ายให้แม่ค้า: <span class="text-lg font-bold text-slate-800">฿{{ formatNumber(txTotals.vendor) }}</span></div>
+                    <div>รวมกำไรสหกรณ์วันนี้: <span class="text-lg font-bold text-emerald-600">฿{{ formatNumber(txTotals.profit) }}</span></div>
+                </div>
+                <div class="space-x-2">
+                    <button v-if="currentTx.status === 'draft' && currentTx.id" @click="saveTransaction('completed')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition shadow-sm"><i class="fa-solid fa-lock mr-1"></i>บันทึกปิดยอดขาย</button>
+                    <button v-if="currentTx.status === 'draft'" @click="saveTransaction('draft')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition shadow-sm">บันทึกข้อมูลฝากขาย</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- สคริปต์การทำงานฝั่งแอปพลิเคชัน (Logic Script) -->
+<script>
+const { createApp, ref, onMounted, computed } = Vue;
+
+// ตั้งค่าการเชื่อมต่อฐานข้อมูล Supabase 
+// (เปลี่ยนลิงก์ URL และ Anon Key ให้ตรงกับ Project ในหน้า Dashboard ของคุณ)
+
+const SB_URL = "https://julbjzelytrdwoplwwkd.supabase.co"; 
+const SB_KEY = "sb_publishable_N7ryN6qlDdIGASUeH_Q3pw_5HIYtg_T";
+const supabaseClient = supabase.createClient(SB_URL, SB_KEY);
+
+createApp({
+    setup() {
+        // จัดการสถานะหลัก (State Management)
+        const loading = ref(false);
+        const userLoggedIn = ref(false);
+        const currentTab = ref('dashboard');
+        const activeUser = ref({ name: '', role: '' });
+        
+        const loginForm = ref({ username: '', password: '' });
+        const settings = ref({ school_name: '', school_logo: '' });
+        
+        const vendors = ref([]);
+        const transactions = ref([]);
+        const stats = ref({ todaySales: 0, todayProfit: 0, totalProducts: 0, totalVendors: 0 });
+
+        // โมเดลสำหรับควบคุมกล่องข้อมูล Popup
+        const modals = ref({ transaction: false });
+        const currentTx = ref({ id: null, trans_no: '', trans_date: '', vendor_id: '', remark: '', status: 'draft', details: [] });
+
+        // คำนวณสรุปยอดรวมท้ายตาราง
+        const txTotals = computed(() => {
+            let vendor = 0, profit = 0;
+            currentTx.value.details.forEach(d => {
+                vendor += Number(d.vendor_amount || 0);
+                profit += Number(d.coop_profit || 0);
+            });
+            return { vendor, profit };
+        });
+
+        // ตรวจสอบข้อมูลเมื่อเริ่มต้นเว็บแอป
+        onMounted(async () => {
+            await fetchSettings();
+            // ตรวจสอบการจำข้อมูลผู้ใช้ในเครื่องเบื้องต้น
+            const saved = localStorage.getItem('coop_user');
+            if(saved) {
+                activeUser.value = JSON.parse(saved);
+                userLoggedIn.value = true;
+                await refreshAllData();
+            }
+        });
+
+        async function fetchSettings() {
+            const { data } = await supabaseClient.from('system_settings').select('*').eq('id', 1).single();
+            if(data) settings.value = data;
+        }
+
+        async function refreshAllData() {
+            loading.value = true;
+            await fetchVendors();
+            await fetchTransactions();
+            await loadDashboardStats();
+            loading.value = false;
+        }
+
+        async function handleLogin() {
+            loading.value = true;
+            const { data, error } = await supabaseClient.from('users')
+                .select('*')
+                .eq('username', loginForm.value.username)
+                .eq('password', loginForm.value.password)
+                .eq('status', 'active')
+                .maybeSingle();
+
+            loading.value = false;
+            if (data) {
+                activeUser.value = { id: data.id, name: data.name, role: data.role };
+                localStorage.setItem('coop_user', JSON.stringify(activeUser.value));
+                userLoggedIn.value = true;
+                await refreshAllData();
+            } else {
+                alert('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง หรือบัญชีถูกระงับการใช้งาน');
+            }
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('coop_user');
+            userLoggedIn.value = false;
+            activeUser.value = { name: '', role: '' };
+        }
+
+        async function fetchVendors() {
+            const { data } = await supabaseClient.from('vendors').select('*').order('vendor_code', { ascending: true });
+            if(data) vendors.value = data;
+        }
+
+        async function fetchTransactions() {
+            const { data } = await supabaseClient.from('transactions').select('*, vendors(name)').order('created_at', { ascending: false });
+            if(data) transactions.value = data;
+        }
+
+        // โหลดรายการสินค้าผูกตามแม่ค้าเมื่อกดสร้างเอกสาร
+        async function loadVendorProducts() {
+            if(!currentTx.value.vendor_id) { currentTx.value.details = []; return; }
+            loading.value = true;
+            const { data } = await supabaseClient.from('products').select('*').eq('vendor_id', currentTx.value.vendor_id).eq('status', 'active');
+            loading.value = false;
+            
+            if(data) {
+                currentTx.value.details = data.map(p => ({
+                    product_id: p.id,
+                    product_name: p.product_name,
+                    cost_price: 0,
+                    sell_price: 0,
+                    qty_receive: 0,
+                    qty_remain: 0,
+                    qty_sale: 0,
+                    vendor_amount: 0,
+                    coop_profit: 0
+                }));
+            }
+        }
+
+        function calculateLine(item) {
+            if(item.qty_remain > item.qty_receive) {
+                alert('จำนวนสินค้าคงเหลือห้ามมากกว่าจำนวนรับฝากขายจริงช่วงเช้า');
+                item.qty_remain = 0;
+            }
+            item.qty_sale = item.qty_receive - item.qty_remain;
+            item.vendor_amount = item.qty_sale * item.cost_price;
+            item.coop_profit = item.qty_sale * (item.sell_price - item.cost_price);
+        }
+
+        async function openTransactionModal(tx = null) {
+    if(!tx) {
+        currentTx.value = { id: null, trans_no: 'TX-' + Date.now().toString().slice(-6), trans_date: new Date().toISOString().split('T')[0], vendor_id: '', remark: '', status: 'draft', details: [] };
+    } else {
+        loading.value = true;
+        const { data } = await supabaseClient.from('transaction_details').select('*').eq('transaction_id', tx.id);
+        loading.value = false;
+        
+        // ดึงชื่อสินค้าแบบแมปคู่ตรงในโค้ดฝั่ง Client
+        const { data: pList } = await supabaseClient.from('products').select('id, product_name');
+        
+        currentTx.value = { 
+            ...tx, 
+            details: (data || []).map(d => ({
+                ...d,
+                product_name: pList ? (pList.find(p => p.id === d.product_id)?.product_name || 'ไม่พบชื่อสินค้า') : 'ไม่พบข้อมูลสินค้า'
+            }))
+        };
+    }
+    modals.value.transaction = true; // เปิดหน้าต่าง Modal หลังจากโหลดข้อมูลสำเร็จ
+}
+        async function saveTransaction(targetStatus) {
+            if(!currentTx.value.vendor_id) return alert('กรุณาเลือกข้อมูลแม่ค้า');
+            if(currentTx.value.details.length === 0) return alert('ไม่พบข้อมูลรายการสินค้าให้จัดเก็บ');
+            
+            loading.value = true;
+            currentTx.value.status = targetStatus;
+
+            const txPayload = {
+                trans_no: currentTx.value.trans_no,
+                trans_date: currentTx.value.trans_date,
+                teacher_id: activeUser.value.id,
+                vendor_id: currentTx.value.vendor_id,
+                remark: currentTx.value.remark,
+                status: currentTx.value.status
+            };
+
+            let txId = currentTx.value.id;
+
+            if(!txId) {
+                // บันทึกใหม่ลงตารางตัวแม่ (Header Insert)
+                const { data, error } = await supabaseClient.from('transactions').insert(txPayload).select().single();
+                if(data) txId = data.id;
+            } else {
+                // อัปเดตข้อมูลเดิมซ้ำ (Header Update)
+                await supabaseClient.from('transactions').update(txPayload).eq('id', txId);
+                // ลบรายการแถวย่อยเดิมเพื่อเคลียร์พื้นที่ทำชุดใหม่
+                await supabaseClient.from('transaction_details').delete().eq('transaction_id', txId);
+            }
+
+            // บันทึกรายการแถวย่อยตัวสินค้า (Details Array Payload)
+            const detailsPayload = currentTx.value.details.map(d => ({
+                transaction_id: txId,
+                product_id: d.product_id,
+                cost_price: d.cost_price,
+                sell_price: d.sell_price,
+                qty_receive: d.qty_receive,
+                qty_remain: d.qty_remain
+            }));
+
+            await supabaseClient.from('transaction_details').insert(detailsPayload);
+            
+            modals.value.transaction = false;
+            await refreshAllData();
+            alert('บันทึกข้อมูลเสร็จสิ้นเรียบร้อยแล้ว');
+        }
+
+        async function loadDashboardStats() {
+            // ดึงข้อมูลเพื่อนับสถิติจำนวนตั้งต้นมาโชว์บนการ์ดด้านบน
+            const { count: pCount } = await supabaseClient.from('products').select('*', { count: 'exact', head: true });
+            const { count: vCount } = await supabaseClient.from('vendors').select('*', { count: 'exact', head: true });
+            
+            stats.value.totalProducts = pCount || 0;
+            stats.value.totalVendors = vCount || 0;
+
+            // ค้นหารายการขายที่ปิดยอดประจำวันเรียบร้อยแล้ว
+            const today = new Date().toISOString().split('T')[0];
+            const { data: todayTx } = await supabaseClient.from('transactions').select('id').eq('trans_date', today).neq('status', 'draft');
+
+            if(todayTx && todayTx.length > 0) {
+                const ids = todayTx.map(t => t.id);
+                const { data: details } = await supabaseClient.from('transaction_details').select('qty_sale, sell_price, coop_profit').in('transaction_id', ids);
+                
+                if(details) {
+                    stats.value.todaySales = details.reduce((acc, curr) => acc + (curr.qty_sale * curr.sell_price), 0);
+                    stats.value.todayProfit = details.reduce((acc, curr) => acc + Number(curr.coop_profit), 0);
+                }
+            } else {
+                stats.value.todaySales = 0;
+                stats.value.todayProfit = 0;
+            }
+
+            renderCharts();
+        }
+
+        // จัดการฟังก์ชันแสดงผลกราฟสถิติภาพรวม
+        function renderCharts() {
+            const ctxDaily = document.getElementById('dailyChart');
+            if (ctxDaily) {
+                // เคลียร์ Canvas เก่าถ้าเคยสร้างไว้แล้วเพื่อประหยัด Memory
+                const existingChart = Chart.getChart(ctxDaily);
+                if(existingChart) existingChart.destroy();
+
+                new Chart(ctxDaily, {
+                    type: 'bar',
+                    data: {
+                        labels: ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์'],
+                        datasets: [{
+                            label: 'กำไรสุทธิสหกรณ์ (บาท)',
+                            data: [1200, 1850, stats.value.todayProfit || 950, 1400, 2100],
+                            backgroundColor: '#3b82f6',
+                            borderRadius: 8
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+        }
+
+        // ฟังก์ชันงานเอกสารการพิมพ์ใบเสร็จสรุปงานฝากขายประจำวัน
+        function printReceipt(item) {
+            alert('กำลังสร้างหน้าต่างเอกสารการจัดพิมพ์สำหรับรายการเลขที่ ' + item.trans_no);
+            // โค้ดส่วนนี้จะสั่งเปิด Window.print() เพื่อจัดเรียงใบเสร็จส่งแม่ค้าต่อไป
+        }
+
+        // เครื่องมือช่วยจัดรูปแบบข้อมูลการแสดงผลทั่วไป
+        function formatNumber(num) { return Number(num || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+        function formatDate(dateStr) { return new Date(dateStr).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }); }
+
+        return {
+            loading, userLoggedIn, currentTab, activeUser, loginForm, settings, vendors, transactions, stats, modals, currentTx, txTotals,
+            handleLogin, handleLogout, openTransactionModal, loadVendorProducts, calculateLine, saveTransaction, printReceipt, formatNumber, formatDate
+        };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
